@@ -1,12 +1,21 @@
-AWSTemplateFormatVersion: "2010-09-09"
-Description: Demo S3 bucket (insecure)
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Insecure template for Conformity scanning
+
 Resources:
-  DemoBucket:
-    Type: AWS::S3::Bucket
+  MySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
     Properties:
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-      # Missing encryption & secure transport policy
+      GroupDescription: Overly permissive security group
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0  # Will be flagged by scanner
+
+  MyEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro  # Will be flagged as non-production
+      ImageId: ami-0c55b159cbfafe1f0
+      SecurityGroups:
+        - !Ref MySecurityGroup
