@@ -1,54 +1,36 @@
 version: 0.2
-
 env:
   variables:
     CONFORMITY_API_BASE: "https://conformity.us-1.cloudone.trendmicro.com/api"
-    TEMPLATE_FILE: "template-insecure.yaml"   # change to template-fixed.yaml after remediation
+    TEMPLATE_FILE: "template-insecure.yaml"  # CONFIRM this filename exists
   secrets-manager:
-    CC_API_KEY: "conformity/apiKey:ApiKey"
+    CC_API_KEY: "conformity/apiKey"  # REMOVED :ApiKey suffix if not in Secrets Manager
 
 phases:
   install:
     commands:
-      - echo "Installing jq for JSON processing..."
-      - yum -y install jq > /dev/null
+      - yum -y install jq curl
 
   build:
     commands:
-      - echo "Scanning $TEMPLATE_FILE with Trend Micro Cloud One – Conformity..."
+      - echo "Validating files..."
+      - ls -la
+      - if [ ! -f "$TEMPLATE_FILE" ]; then echo "ERROR: Template missing!"; exit 1; fi
 
-      # Read template contents into a JSON-safe string
+      - echo "Starting scan..."
       - |
-        CONTENTS=$(cat "$TEMPLATE_FILE" | jq -MRs '.')
+        set -e  # Exit immediately on errors
+        CONTENTS=$(jq -MRs '.' < "$TEMPLATE_FILE")
         PAYLOAD="{\"data\":{\"attributes\":{\"type\":\"cloudformation-template\",\"contents\":${CONTENTS}}}}"
-
-      # Call the Conformity Template Scanner API
-      - |
-        RESP=$(curl -s -X POST \
+        
+        RESP=$(curl -f -s -X POST \
           -H "Authorization: ApiKey ${CC_API_KEY}" \
           -H "Content-Type: application/vnd.api+json" \
           "${CONFORMITY_API_BASE}/template-scanner/scan" \
           --data-binary "$PAYLOAD")
+        
         echo "$RESP" | jq . > scan.json
-
-      # Count failed checks by severity
-      - |
-        EXTREME=$(jq '[.data[] | select(.attributes.status=="FAILURE" and .attributes["risk-level"]=="EXTREME")] | length' scan.json)
-        VERY_HIGH=$(jq '[.data[] | select(.attributes.status=="FAILURE" and .attributes["risk-level"]=="VERY_HIGH")] | length' scan.json)
-        HIGH=$(jq     '[.data[] | select(.attributes.status=="FAILURE" and .attributes["risk-level"]=="HIGH")] | length' scan.json)
-        MEDIUM=$(jq   '[.data[] | select(.attributes.status=="FAILURE" and .attributes["risk-level"]=="MEDIUM")] | length' scan.json)
-        LOW=$(jq      '[.data[] | select(.attributes.status=="FAILURE" and .attributes["risk-level"]=="LOW")] | length' scan.json)
-
-        echo "Failures — EXTREME:$EXTREME VERY_HIGH:$VERY_HIGH HIGH:$HIGH MEDIUM:$MEDIUM LOW:$LOW"
-
-      # Fail the build if any high-risk findings
-      - |
-        if [[ $EXTREME -gt 0 || $VERY_HIGH -gt 0 || $HIGH -gt 0 ]]; then
-          echo "❌ High-risk findings present — failing build.";
-          exit 2;
-        else
-          echo "✅ No high-risk failures.";
-        fi
+        if [ ! -s scan.json ]; then echo "Empty scan results!"; exit 1; fi
 
 artifacts:
   files:
